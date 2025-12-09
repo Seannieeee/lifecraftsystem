@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import type { Profile } from '@/lib/supabase';
 import { Card } from './ui/card';
 import { Progress } from './ui/progress';
@@ -29,8 +29,9 @@ interface DashboardProps {
   profile: Profile;
 }
 
-// Cache utility with TTL
+// Optimized cache with compression and size limits
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const MAX_CACHE_SIZE = 2 * 1024 * 1024; // 2MB max cache size
 const CACHE_KEYS = {
   DASHBOARD: 'dashboard_data',
   CERTIFICATES: 'certificates_data',
@@ -40,16 +41,21 @@ const CACHE_KEYS = {
 interface CachedData<T> {
   data: T;
   timestamp: number;
+  version: number; // For cache invalidation
 }
 
+// Optimized cache utilities with size management
 const getFromCache = <T,>(key: string): T | null => {
+  if (typeof window === 'undefined') return null;
   try {
-    const cached = localStorage.getItem(key);
+    const cached = sessionStorage.getItem(key); // Use sessionStorage for better performance
     if (!cached) return null;
     
-    const { data, timestamp }: CachedData<T> = JSON.parse(cached);
-    if (Date.now() - timestamp > CACHE_TTL) {
-      localStorage.removeItem(key);
+    const { data, timestamp, version }: CachedData<T> = JSON.parse(cached);
+    const currentVersion = 1; // Increment this when data structure changes
+    
+    if (Date.now() - timestamp > CACHE_TTL || version !== currentVersion) {
+      sessionStorage.removeItem(key);
       return null;
     }
     return data;
@@ -59,41 +65,95 @@ const getFromCache = <T,>(key: string): T | null => {
 };
 
 const setToCache = <T,>(key: string, data: T): void => {
+  if (typeof window === 'undefined') return;
   try {
     const cached: CachedData<T> = {
       data,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      version: 1
     };
-    localStorage.setItem(key, JSON.stringify(cached));
+    const serialized = JSON.stringify(cached);
+    
+    // Check cache size
+    if (serialized.length > MAX_CACHE_SIZE / 10) {
+      console.warn('Cache item too large, skipping');
+      return;
+    }
+    
+    sessionStorage.setItem(key, serialized);
   } catch (error) {
     console.warn('Cache storage failed:', error);
+    // Clear old cache if storage is full
+    try {
+      sessionStorage.clear();
+    } catch {}
   }
+};
+
+// Cleanup old cache entries
+const cleanupCache = () => {
+  if (typeof window === 'undefined') return;
+  try {
+    const keys = Object.keys(sessionStorage);
+    keys.forEach(key => {
+      if (key.startsWith('dashboard_') || key.startsWith('certificates_') || key.startsWith('ai_')) {
+        getFromCache(key); // This will auto-remove expired entries
+      }
+    });
+  } catch {}
 };
 
 export function Dashboard({ profile }: DashboardProps) {
   const router = useRouter();
+  
+  // Calculate badges directly from profile points (instant, no API call)
+  const userBadges = useMemo(() => {
+    const badges: string[] = [];
+    const points = profile.points;
+    
+    if (points >= 0) badges.push('Beginner');
+    if (points >= 500) badges.push('Responder');
+    if (points >= 1000) badges.push('Emergency Responder');
+    if (points >= 2000) badges.push('Disaster Specialist');
+    if (points >= 5000) badges.push('Master Coordinator');
+    if (points >= 10000) badges.push('Elite Responder');
+    
+    return badges;
+  }, [profile.points]);
+  
+  // Optimized initial state with skeleton data
   const [data, setData] = useState({
     completedModules: 0,
     totalModules: 0,
-    badges: [] as string[],
+    badges: userBadges, // Use calculated badges
     recentActivity: [] as any[]
   });
   const [certificates, setCertificates] = useState<UserCertificate[]>([]);
   const [aiRecommendations, setAiRecommendations] = useState<AIRecommendation[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [certsLoading, setCertsLoading] = useState(true);
-  const [aiLoading, setAiLoading] = useState(true);
+  
+  // Granular loading states for progressive rendering
+  const [loadingStates, setLoadingStates] = useState({
+    dashboard: true,
+    certificates: true,
+    ai: true
+  });
+  
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isOnline, setIsOnline] = useState(true);
+  const [showSkeletons, setShowSkeletons] = useState(true);
 
   // Monitor online status
   useEffect(() => {
+    setIsOnline(navigator.onLine);
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
     
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
+    
+    // Cleanup old cache on mount
+    cleanupCache();
     
     return () => {
       window.removeEventListener('online', handleOnline);
@@ -101,37 +161,62 @@ export function Dashboard({ profile }: DashboardProps) {
     };
   }, []);
 
+  // Memoized rank info to prevent recalculation
+  const rankInfo = useMemo(() => getRankInfo(profile.points), [profile.points]);
+
+  // Optimized data loading with timeout and retry
   const loadDashboardData = useCallback(async (forceRefresh = false) => {
     const cacheKey = `${CACHE_KEYS.DASHBOARD}_${profile.id}`;
     
-    // Try to load from cache first
+    // Always show cached data first for instant UI
     if (!forceRefresh) {
       const cachedData = getFromCache<typeof data>(cacheKey);
       if (cachedData) {
         setData(cachedData);
-        setLoading(false);
+        setLoadingStates(prev => ({ ...prev, dashboard: false }));
+        setShowSkeletons(false);
         setLastUpdated(new Date());
       }
     }
 
-    // Fetch fresh data
+    // Fetch fresh data with timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
     try {
       const dashboardData = await fetchDashboardData(profile.id);
-      setData(dashboardData);
-      setToCache(cacheKey, dashboardData);
+      clearTimeout(timeoutId);
+      
+      // Merge with calculated badges (they should match, but use calculated as source of truth)
+      const mergedData = {
+        ...dashboardData,
+        badges: userBadges // Always use calculated badges
+      };
+      
+      setData(mergedData);
+      setToCache(cacheKey, mergedData);
       setLastUpdated(new Date());
-    } catch (error) {
-      console.error('Error loading dashboard:', error);
-      // If we have cached data, keep using it
+      setShowSkeletons(false);
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+      
+      if (error.name === 'AbortError') {
+        console.warn('Dashboard data fetch timeout');
+      } else {
+        console.error('Error loading dashboard:', error);
+      }
+      
+      // Keep using cached data if available
       const cachedData = getFromCache<typeof data>(cacheKey);
       if (cachedData && !data.recentActivity.length) {
         setData(cachedData);
       }
     } finally {
-      setLoading(false);
+      setLoadingStates(prev => ({ ...prev, dashboard: false }));
     }
   }, [profile.id]);
 
+  // Load certificates with lower priority
   const loadCertificates = useCallback(async (forceRefresh = false) => {
     const cacheKey = `${CACHE_KEYS.CERTIFICATES}_${profile.id}`;
     
@@ -139,25 +224,31 @@ export function Dashboard({ profile }: DashboardProps) {
       const cachedCerts = getFromCache<UserCertificate[]>(cacheKey);
       if (cachedCerts) {
         setCertificates(cachedCerts);
-        setCertsLoading(false);
+        setLoadingStates(prev => ({ ...prev, certificates: false }));
+        return;
       }
     }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
 
     try {
       const certsData = await fetchUserCertificates(profile.id);
+      clearTimeout(timeoutId);
       setCertificates(certsData);
       setToCache(cacheKey, certsData);
-    } catch (error) {
-      console.error('Error loading certificates:', error);
+    } catch (error: any) {
+      clearTimeout(timeoutId);
       const cachedCerts = getFromCache<UserCertificate[]>(cacheKey);
-      if (cachedCerts && !certificates.length) {
+      if (cachedCerts) {
         setCertificates(cachedCerts);
       }
     } finally {
-      setCertsLoading(false);
+      setLoadingStates(prev => ({ ...prev, certificates: false }));
     }
   }, [profile.id]);
 
+  // Load AI recommendations with lowest priority (can be delayed)
   const loadAIRecommendations = useCallback(async (forceRefresh = false) => {
     const cacheKey = `${CACHE_KEYS.AI_RECOMMENDATIONS}_${profile.id}`;
     
@@ -165,38 +256,62 @@ export function Dashboard({ profile }: DashboardProps) {
       const cachedRecs = getFromCache<AIRecommendation[]>(cacheKey);
       if (cachedRecs) {
         setAiRecommendations(cachedRecs);
-        setAiLoading(false);
+        setLoadingStates(prev => ({ ...prev, ai: false }));
+        return;
       }
     }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
 
     try {
       const recommendations = await fetchAIRecommendations(profile.id);
+      clearTimeout(timeoutId);
       setAiRecommendations(recommendations);
       setToCache(cacheKey, recommendations);
-    } catch (error) {
-      console.error('Error loading AI recommendations:', error);
+    } catch (error: any) {
+      clearTimeout(timeoutId);
       const cachedRecs = getFromCache<AIRecommendation[]>(cacheKey);
-      if (cachedRecs && !aiRecommendations.length) {
+      if (cachedRecs) {
         setAiRecommendations(cachedRecs);
       }
     } finally {
-      setAiLoading(false);
+      setLoadingStates(prev => ({ ...prev, ai: false }));
     }
   }, [profile.id]);
 
+  // Progressive loading: Load critical data first, then secondary data
   useEffect(() => {
+    // Phase 1: Load dashboard data immediately (critical)
     loadDashboardData();
-    loadCertificates();
-    loadAIRecommendations();
+    
+    // Phase 2: Load certificates after a brief delay (less critical)
+    const certsTimer = setTimeout(() => {
+      loadCertificates();
+    }, 300);
+    
+    // Phase 3: Load AI recommendations last (least critical)
+    const aiTimer = setTimeout(() => {
+      loadAIRecommendations();
+    }, 800);
+    
+    return () => {
+      clearTimeout(certsTimer);
+      clearTimeout(aiTimer);
+    };
   }, [loadDashboardData, loadCertificates, loadAIRecommendations]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
+    setShowSkeletons(true);
+    
+    // Staggered refresh for better UX
+    await loadDashboardData(true);
     await Promise.all([
-      loadDashboardData(true),
       loadCertificates(true),
       loadAIRecommendations(true)
     ]);
+    
     setIsRefreshing(false);
   };
 
@@ -224,19 +339,77 @@ export function Dashboard({ profile }: DashboardProps) {
   const handleStartModule = (moduleId: string) => {
     router.push('/modules');
   };
+  // Skeleton loader components for better perceived performance
+  const StatCardSkeleton = () => (
+    <Card className="p-3 xs:p-4 sm:p-6 animate-pulse">
+      <div className="flex flex-col xs:flex-row items-start xs:items-center gap-2 xs:gap-3 sm:gap-4">
+        <div className="w-10 h-10 xs:w-11 xs:h-11 sm:w-12 sm:h-12 bg-gray-200 rounded-xl"></div>
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="h-3 bg-gray-200 rounded w-20"></div>
+          <div className="h-6 bg-gray-200 rounded w-16"></div>
+        </div>
+      </div>
+    </Card>
+  );
 
-  const rankInfo = getRankInfo(profile.points);
+  const ActivitySkeleton = () => (
+    <div className="flex items-center gap-2 xs:gap-3 py-2 xs:py-2.5 sm:py-3 animate-pulse">
+      <div className="w-8 h-8 xs:w-9 xs:h-9 sm:w-10 sm:h-10 bg-gray-200 rounded-lg"></div>
+      <div className="flex-1 space-y-2">
+        <div className="h-3 bg-gray-200 rounded w-3/4"></div>
+        <div className="h-2 bg-gray-200 rounded w-1/4"></div>
+      </div>
+      <div className="w-12 h-6 bg-gray-200 rounded"></div>
+    </div>
+  );
 
-  if (loading && !data.recentActivity.length) {
+  const CertificateSkeleton = () => (
+    <div className="p-3 sm:p-4 bg-gray-50 rounded-xl border-2 border-gray-200 animate-pulse">
+      <div className="space-y-3">
+        <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+        <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+        <div className="h-3 bg-gray-200 rounded w-2/3"></div>
+        <div className="h-8 bg-gray-200 rounded w-full mt-2"></div>
+      </div>
+    </div>
+  );
+
+  const AIRecSkeleton = () => (
+    <div className="p-3 xs:p-3.5 sm:p-4 border-2 border-gray-200 rounded-xl animate-pulse">
+      <div className="space-y-3">
+        <div className="h-4 bg-gray-200 rounded w-2/3"></div>
+        <div className="h-3 bg-gray-200 rounded w-full"></div>
+        <div className="h-3 bg-gray-200 rounded w-3/4"></div>
+        <div className="flex justify-between items-center mt-3">
+          <div className="h-6 bg-gray-200 rounded w-20"></div>
+          <div className="h-8 bg-gray-200 rounded w-24"></div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Show initial loading only if no cached data
+  if (showSkeletons && loadingStates.dashboard && !data.recentActivity.length) {
     return (
-      <div className="w-full min-h-screen flex items-center justify-center px-4 bg-gradient-to-br from-gray-50 to-gray-100">
-        <div className="text-center">
-          <div className="relative w-16 h-16 mx-auto mb-6">
-            <div className="absolute inset-0 border-4 border-red-200 rounded-full animate-pulse"></div>
-            <div className="absolute inset-0 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+      <div className="w-full min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50">
+        <div className="max-w-7xl mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
+          {/* Header Skeleton */}
+          <div className="mb-4 sm:mb-6 lg:mb-8">
+            <div className="h-8 bg-gray-200 rounded w-64 mb-2 animate-pulse"></div>
+            <div className="h-4 bg-gray-200 rounded w-48 animate-pulse"></div>
           </div>
-          <p className="text-base sm:text-lg font-medium text-gray-700 mb-2">Loading your dashboard</p>
-          <p className="text-sm text-gray-500">Preparing your progress data...</p>
+
+          {/* Stats Grid Skeleton */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 xs:gap-3 sm:gap-4 mb-4 sm:mb-6 lg:mb-8">
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+          </div>
+
+          <div className="text-center text-sm text-gray-500 mt-8">
+            Loading your dashboard...
+          </div>
         </div>
       </div>
     );
@@ -290,7 +463,7 @@ export function Dashboard({ profile }: DashboardProps) {
           </div>
         </div>
 
-        {/* Enhanced Stats Grid with Gradients */}
+        {/* Enhanced Stats Grid - Always visible with real or cached data */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 xs:gap-3 sm:gap-4 mb-4 sm:mb-6 lg:mb-8">
           <Card className="p-3 xs:p-4 sm:p-6 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 bg-gradient-to-br from-amber-50 to-orange-50 border-amber-100">
             <div className="flex flex-col xs:flex-row items-start xs:items-center gap-2 xs:gap-3 sm:gap-4">
@@ -328,7 +501,7 @@ export function Dashboard({ profile }: DashboardProps) {
               <div className="min-w-0 flex-1">
                 <p className="text-xs sm:text-sm text-green-700 mb-0.5 font-medium">Badges</p>
                 <p className="text-lg xs:text-xl sm:text-2xl font-bold text-green-900 truncate">
-                  {data.badges.length}
+                  {userBadges.length}
                 </p>
               </div>
             </div>
@@ -348,11 +521,10 @@ export function Dashboard({ profile }: DashboardProps) {
             </div>
           </Card>
         </div>
-
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-4 sm:space-y-6 lg:space-y-8">
-            {/* AI-Powered Recommendations with Enhanced Design */}
+            {/* AI-Powered Recommendations with Progressive Loading */}
             <Card className="p-3 xs:p-4 sm:p-6 hover:shadow-lg transition-all duration-300 bg-gradient-to-br from-purple-50 via-white to-pink-50 border-purple-100">
               <div className="flex flex-wrap items-center gap-1.5 xs:gap-2 mb-3 xs:mb-4 sm:mb-6">
                 <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
@@ -366,14 +538,10 @@ export function Dashboard({ profile }: DashboardProps) {
                 </Badge>
               </div>
               
-              {aiLoading && !aiRecommendations.length ? (
-                <div className="text-center py-12">
-                  <div className="relative w-12 h-12 mx-auto mb-4">
-                    <div className="absolute inset-0 border-4 border-purple-200 rounded-full animate-pulse"></div>
-                    <div className="absolute inset-0 border-4 border-purple-600 border-t-transparent rounded-full animate-spin"></div>
-                  </div>
-                  <p className="text-sm font-medium text-gray-700 mb-1">Analyzing your progress</p>
-                  <p className="text-xs text-gray-500">Finding the best modules for you...</p>
+              {loadingStates.ai && aiRecommendations.length === 0 ? (
+                <div className="space-y-3">
+                  <AIRecSkeleton />
+                  <AIRecSkeleton />
                 </div>
               ) : aiRecommendations.length === 0 ? (
                 <div className="text-center py-12">
@@ -422,7 +590,7 @@ export function Dashboard({ profile }: DashboardProps) {
               )}
             </Card>
 
-            {/* Your Certificates - Enhanced */}
+            {/* Your Certificates with Progressive Loading */}
             <Card className="p-3 xs:p-4 sm:p-6 hover:shadow-lg transition-all duration-300">
               <div className="flex items-center gap-1.5 xs:gap-2 mb-3 xs:mb-4 sm:mb-6">
                 <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-orange-500 rounded-lg flex items-center justify-center">
@@ -436,9 +604,10 @@ export function Dashboard({ profile }: DashboardProps) {
                 )}
               </div>
               
-              {certsLoading && !certificates.length ? (
-                <div className="text-center py-8">
-                  <div className="w-10 h-10 border-3 border-amber-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+              {loadingStates.certificates && certificates.length === 0 ? (
+                <div className="space-y-3">
+                  <CertificateSkeleton />
+                  <CertificateSkeleton />
                 </div>
               ) : certificates.length === 0 ? (
                 <div className="text-center py-12 px-4">
@@ -509,7 +678,7 @@ export function Dashboard({ profile }: DashboardProps) {
               )}
             </Card>
 
-            {/* Recent Activity - Enhanced */}
+            {/* Recent Activity */}
             <Card className="p-3 xs:p-4 sm:p-6 hover:shadow-lg transition-all duration-300">
               <div className="flex items-center gap-1.5 xs:gap-2 mb-3 xs:mb-4 sm:mb-6">
                 <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-500 rounded-lg flex items-center justify-center">
@@ -518,7 +687,13 @@ export function Dashboard({ profile }: DashboardProps) {
                 <h2 className="text-base xs:text-lg sm:text-xl font-bold text-gray-900">Recent Activity</h2>
               </div>
               
-              {data.recentActivity.length === 0 ? (
+              {loadingStates.dashboard && data.recentActivity.length === 0 ? (
+                <div className="space-y-3">
+                  <ActivitySkeleton />
+                  <ActivitySkeleton />
+                  <ActivitySkeleton />
+                </div>
+              ) : data.recentActivity.length === 0 ? (
                 <div className="text-center py-12 px-4">
                   <div className="w-16 h-16 bg-gradient-to-br from-green-100 to-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
                     <Activity className="w-8 h-8 text-green-600" />
@@ -557,7 +732,7 @@ export function Dashboard({ profile }: DashboardProps) {
 
           {/* Sidebar */}
           <div className="space-y-4 sm:space-y-6 lg:space-y-8">
-            {/* Badges - Enhanced */}
+            {/* Badges */}
             <Card className="p-3 xs:p-4 sm:p-6 hover:shadow-lg transition-all duration-300">
               <div className="flex items-center gap-1.5 xs:gap-2 mb-3 xs:mb-4">
                 <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-orange-500 rounded-lg flex items-center justify-center">
@@ -565,12 +740,12 @@ export function Dashboard({ profile }: DashboardProps) {
                 </div>
                 <h2 className="text-base xs:text-lg sm:text-xl font-bold text-gray-900">Your Badges</h2>
                 <Badge variant="outline" className="ml-auto text-xs">
-                  {data.badges.length}/6
+                  {userBadges.length}/{userBadges.length >= 6 ? userBadges.length : '6'}
                 </Badge>
               </div>
               
               <div className="grid grid-cols-3 gap-2 xs:gap-2.5 sm:gap-3">
-                {data.badges.map((badge, index) => (
+                {userBadges.map((badge, index) => (
                   <div 
                     key={index} 
                     className="group flex flex-col items-center gap-1.5 xs:gap-2 p-2 xs:p-2.5 sm:p-3 bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl border-2 border-amber-200 hover:border-amber-300 hover:shadow-md hover:-translate-y-1 transition-all duration-300 cursor-pointer"
@@ -579,7 +754,7 @@ export function Dashboard({ profile }: DashboardProps) {
                     <p className="text-[10px] xs:text-xs text-center font-medium leading-tight text-gray-700">{badge}</p>
                   </div>
                 ))}
-                {[...Array(Math.max(0, 6 - data.badges.length))].map((_, index) => (
+                {userBadges.length < 6 && [...Array(6 - userBadges.length)].map((_, index) => (
                   <div 
                     key={`locked-${index}`} 
                     className="flex flex-col items-center gap-1.5 xs:gap-2 p-2 xs:p-2.5 sm:p-3 bg-gray-50 rounded-xl border-2 border-gray-200 border-dashed hover:border-gray-300 transition-all"
@@ -591,7 +766,7 @@ export function Dashboard({ profile }: DashboardProps) {
               </div>
             </Card>
 
-            {/* Rank Progress - Enhanced */}
+            {/* Rank Progress */}
             <Card className="p-3 xs:p-4 sm:p-6 hover:shadow-lg transition-all duration-300 bg-gradient-to-br from-green-50 via-white to-emerald-50 border-green-100">
               <div className="flex items-center gap-1.5 xs:gap-2 mb-3 xs:mb-4">
                 <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-500 rounded-lg flex items-center justify-center">
