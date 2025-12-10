@@ -19,7 +19,9 @@ import {
   Activity,
   Send,
   CheckCircle,
-  Mail
+  Mail,
+  FileText,
+  Download
 } from 'lucide-react';
 import {
   getDashboardStats,
@@ -47,6 +49,7 @@ export function AdminPortal({ profile }: AdminPortalProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
+  const [generatingReport, setGeneratingReport] = useState(false);
   
   // Data states
   const [dashboardStats, setDashboardStats] = useState<AdminDashboardStats>({
@@ -139,7 +142,266 @@ export function AdminPortal({ profile }: AdminPortalProps) {
     return date.toLocaleDateString();
   };
 
-  // UPDATED: Generate certificate and send email notification
+  // NEW: Generate Drill Registration Report PDF
+  const generateDrillRegistrationReport = async (drill: DrillStats) => {
+    setGeneratingReport(true);
+
+    try {
+      const loadScript = () => {
+        return new Promise((resolve, reject) => {
+          if ((window as any).jspdf) {
+            resolve(true);
+            return;
+          }
+          
+          const script = document.createElement('script');
+          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+          script.onload = () => resolve(true);
+          script.onerror = () => reject(new Error('Failed to load PDF library'));
+          document.head.appendChild(script);
+        });
+      };
+
+      await loadScript();
+
+      const { jsPDF } = (window as any).jspdf;
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      let yPos = 20;
+
+      // Header with border
+      doc.setLineWidth(2);
+      doc.setDrawColor(0, 0, 0);
+      doc.line(10, 15, pageWidth - 10, 15);
+      
+      yPos = 22;
+      doc.setFontSize(16);
+      doc.setFont('helvetica', 'bold');
+      doc.text('LIFECRAFT EMERGENCY RESPONSE TRAINING', pageWidth / 2, yPos, { align: 'center' });
+      
+      yPos += 7;
+      doc.setFontSize(13);
+      doc.text('Physical Drill Registration Report', pageWidth / 2, yPos, { align: 'center' });
+      
+      yPos += 8;
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      const now = new Date();
+      doc.text(`Report Generated: ${now.toLocaleDateString('en-US', { 
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      })} at ${now.toLocaleTimeString('en-US')}`, pageWidth / 2, yPos, { align: 'center' });
+      
+      doc.setLineWidth(2);
+      doc.line(10, yPos + 3, pageWidth - 10, yPos + 3);
+      yPos += 12;
+
+      // Drill Information Box
+      doc.setLineWidth(1.5);
+      doc.rect(10, yPos, pageWidth - 20, 40);
+      
+      yPos += 6;
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('DRILL INFORMATION', 15, yPos);
+      doc.setLineWidth(0.5);
+      doc.line(15, yPos + 1, pageWidth - 15, yPos + 1);
+      
+      yPos += 8;
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Drill Title:', 15, yPos);
+      doc.setFont('helvetica', 'normal');
+      doc.text(drill.title, 40, yPos);
+      
+      yPos += 7;
+      doc.setFont('helvetica', 'bold');
+      doc.text('Date:', 15, yPos);
+      doc.setFont('helvetica', 'normal');
+      doc.text(drill.date ? new Date(drill.date).toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      }) : 'N/A', 40, yPos);
+      
+      yPos += 7;
+      doc.setFont('helvetica', 'bold');
+      doc.text('Type:', 15, yPos);
+      doc.setFont('helvetica', 'normal');
+      doc.text(drill.type, 40, yPos);
+      
+      yPos += 7;
+      doc.setFont('helvetica', 'bold');
+      doc.text('Location:', 15, yPos);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Olongapo City', 40, yPos);
+      
+      yPos += 14;
+
+      // Registration Summary
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('REGISTRATION SUMMARY', 15, yPos);
+      doc.setLineWidth(0.5);
+      doc.line(15, yPos + 1, pageWidth - 15, yPos + 1);
+      
+      yPos += 10;
+      
+      // Stats boxes - side by side
+      const boxWidth = (pageWidth - 30) / 2;
+      const boxHeight = 25;
+      
+      // Total Registrations
+      doc.setLineWidth(1.5);
+      doc.rect(10, yPos, boxWidth, boxHeight);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Total Registrations:', 15, yPos + 8);
+      doc.setFontSize(20);
+      doc.text((drill.registered ?? 0).toString(), 15, yPos + 19);
+      
+      // Capacity
+      doc.rect(10 + boxWidth + 5, yPos, boxWidth, boxHeight);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Capacity:', 15 + boxWidth + 5, yPos + 8);
+      doc.setFontSize(20);
+      doc.text(drill.capacity ? drill.capacity.toString() : 'N/A', 15 + boxWidth + 5, yPos + 19);
+      
+      yPos += boxHeight + 12;
+
+      // Top Performers Section
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('TOP PERFORMERS', 15, yPos);
+      doc.setLineWidth(0.5);
+      doc.line(15, yPos + 1, pageWidth - 15, yPos + 1);
+      
+      yPos += 8;
+      
+      const topPerformers = participants
+        .sort((a, b) => b.points - a.points)
+        .slice(0, 5);
+      
+      // Table header
+      doc.setFontSize(9);
+      doc.setFillColor(220, 220, 220);
+      doc.rect(10, yPos, pageWidth - 20, 8, 'F');
+      doc.setLineWidth(1.5);
+      doc.rect(10, yPos, pageWidth - 20, 8);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Rank', 18, yPos + 5.5);
+      doc.text('Name', 45, yPos + 5.5);
+      doc.text('Status', 140, yPos + 5.5);
+      doc.text('Points', pageWidth - 30, yPos + 5.5);
+      
+      yPos += 8;
+      
+      // Table rows
+      doc.setFont('helvetica', 'normal');
+      topPerformers.forEach((performer, index) => {
+        if (yPos > pageHeight - 35) {
+          doc.addPage();
+          yPos = 20;
+        }
+        
+        doc.setLineWidth(0.5);
+        doc.line(10, yPos, pageWidth - 10, yPos);
+        
+        yPos += 6;
+        doc.text((index + 1).toString(), 18, yPos);
+        doc.text(performer.full_name, 45, yPos);
+        doc.text(performer.rank, 140, yPos);
+        doc.text(performer.points.toString(), pageWidth - 30, yPos);
+        yPos += 1;
+      });
+      
+      doc.setLineWidth(1.5);
+      doc.line(10, yPos, pageWidth - 10, yPos);
+      yPos += 10;
+
+      // Performance Metrics Section
+      if (yPos > pageHeight - 55) {
+        doc.addPage();
+        yPos = 20;
+      }
+      
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('PERFORMANCE METRICS', 15, yPos);
+      doc.setLineWidth(0.5);
+      doc.line(15, yPos + 1, pageWidth - 15, yPos + 1);
+      
+      yPos += 10;
+      
+      const metricsBoxWidth = (pageWidth - 40) / 3;
+      const metricsBoxHeight = 28;
+      
+      // Avg Module Score
+      doc.setLineWidth(1.5);
+      doc.setFillColor(255, 255, 255);
+      doc.rect(10, yPos, metricsBoxWidth, metricsBoxHeight, 'FD');
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Avg. Module Score', 15, yPos + 8);
+      doc.setFontSize(24);
+      doc.text(`${performanceMetrics.avgModuleScore}%`, 15, yPos + 22);
+      
+      // Avg Drill Score
+      doc.setFillColor(255, 255, 255);
+      doc.rect(15 + metricsBoxWidth, yPos, metricsBoxWidth, metricsBoxHeight, 'FD');
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Avg. Drill Score', 20 + metricsBoxWidth, yPos + 8);
+      doc.setFontSize(24);
+      doc.text(`${performanceMetrics.avgDrillScore}%`, 20 + metricsBoxWidth, yPos + 22);
+      
+      // Completion Rate
+      doc.setFillColor(255, 255, 255);
+      doc.rect(20 + (metricsBoxWidth * 2), yPos, metricsBoxWidth, metricsBoxHeight, 'FD');
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Completion Rate', 25 + (metricsBoxWidth * 2), yPos + 8);
+      doc.setFontSize(24);
+      doc.text(`${dashboardStats.avgCompletionRate}%`, 25 + (metricsBoxWidth * 2), yPos + 22);
+      
+      yPos += metricsBoxHeight + 15;
+
+      // Footer
+      if (yPos > pageHeight - 20) {
+        doc.addPage();
+        yPos = pageHeight - 20;
+      } else {
+        yPos = pageHeight - 20;
+      }
+      
+      doc.setLineWidth(0.5);
+      doc.line(10, yPos, pageWidth - 10, yPos);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'italic');
+      doc.setTextColor(100, 100, 100);
+      doc.text('This report was generated automatically by the LifeCraft Training System', pageWidth / 2, yPos + 5, { align: 'center' });
+
+      // Save the PDF
+      doc.save(`Drill-Report-${drill.title.replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.pdf`);
+      
+      setGeneratingReport(false);
+    } catch (error) {
+      console.error('Report generation error:', error);
+      setGeneratingReport(false);
+      alert('Failed to generate report. Please try again.');
+    }
+  };
+  // Generate certificate function (continues from Part 1)
   const generateAndMakeCertificateAvailable = async (drill: CertifiedDrill, participant: any) => {
     setGeneratingCertificate(`${drill.id}-${participant.user_id}`);
 
@@ -171,7 +433,6 @@ export function AdminPortal({ profile }: AdminPortalProps) {
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
       
-      // Classic black border frame - no whitespace
       doc.setLineWidth(2);
       doc.setDrawColor(0, 0, 0);
       doc.rect(5, 5, pageWidth - 10, pageHeight - 10);
@@ -180,53 +441,44 @@ export function AdminPortal({ profile }: AdminPortalProps) {
       doc.setDrawColor(0, 0, 0);
       doc.rect(10, 10, pageWidth - 20, pageHeight - 20);
 
-      // Organization header
       doc.setFontSize(14);
       doc.setTextColor(0, 0, 0);
       doc.setFont('helvetica', 'bold');
       doc.text('LifeCraft Training Program', pageWidth / 2, 25, { align: 'center' });
 
-      // Certificate Title
       doc.setFontSize(40);
       doc.setFont('times', 'bold');
       doc.text('Certificate of Completion', pageWidth / 2, 50, { align: 'center' });
 
-      // Decorative line under title
       doc.setLineWidth(0.8);
       doc.setDrawColor(0, 0, 0);
       doc.line(50, 55, pageWidth - 50, 55);
 
-      // Presented to text
       doc.setFontSize(14);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(0, 0, 0);
       doc.text('This certificate is proudly presented to', pageWidth / 2, 72, { align: 'center' });
 
-      // Participant name - larger and prominent
       doc.setFontSize(32);
       doc.setFont('times', 'bolditalic');
       doc.text(participant.full_name, pageWidth / 2, 90, { align: 'center' });
 
-      // Line under name
       doc.setLineWidth(0.3);
       doc.setDrawColor(0, 0, 0);
       const nameWidth = doc.getTextWidth(participant.full_name);
       doc.line((pageWidth - nameWidth - 20) / 2, 93, (pageWidth + nameWidth + 20) / 2, 93);
 
-      // Recognition text
       doc.setFontSize(14);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(0, 0, 0);
       doc.text('for successfully completing the physical drill training', pageWidth / 2, 106, { align: 'center' });
 
-      // Drill title - bold and centered
       doc.setFontSize(22);
       doc.setFont('helvetica', 'bold');
       const titleLines = doc.splitTextToSize(drill.title, pageWidth - 80);
       const titleY = 120;
       doc.text(titleLines, pageWidth / 2, titleY, { align: 'center' });
 
-      // Drill details
       const detailsY = titleY + (titleLines.length * 9) + 8;
       doc.setFontSize(12);
       doc.setFont('helvetica', 'normal');
@@ -243,14 +495,11 @@ export function AdminPortal({ profile }: AdminPortalProps) {
       doc.text(`Location: ${drill.location}`, pageWidth / 2, detailsY + 7, { align: 'center' });
       doc.text(`Lead Instructor: ${drill.instructor}`, pageWidth / 2, detailsY + 14, { align: 'center' });
 
-      // Footer section with signatures
       const footerY = pageHeight - 42;
       
-      // Signature lines
       doc.setLineWidth(0.5);
       doc.setDrawColor(0, 0, 0);
       
-      // Left signature (Instructor)
       const leftSigStart = 45;
       const leftSigEnd = 100;
       doc.line(leftSigStart, footerY, leftSigEnd, footerY);
@@ -263,7 +512,6 @@ export function AdminPortal({ profile }: AdminPortalProps) {
       doc.setFont('helvetica', 'normal');
       doc.text(drill.instructor, (leftSigStart + leftSigEnd) / 2, footerY + 11, { align: 'center' });
 
-      // Right signature (Program Director)
       const rightSigStart = pageWidth - 100;
       const rightSigEnd = pageWidth - 45;
       doc.line(rightSigStart, footerY, rightSigEnd, footerY);
@@ -274,7 +522,6 @@ export function AdminPortal({ profile }: AdminPortalProps) {
       doc.setFont('helvetica', 'normal');
       doc.text('LifeCraft Administration', (rightSigStart + rightSigEnd) / 2, footerY + 11, { align: 'center' });
 
-      // Issue date at bottom center
       doc.setFontSize(9);
       doc.setFont('helvetica', 'italic');
       doc.setTextColor(60, 60, 60);
@@ -284,20 +531,16 @@ export function AdminPortal({ profile }: AdminPortalProps) {
         day: 'numeric'
       })}`, pageWidth / 2, pageHeight - 22, { align: 'center' });
 
-      // Organization seal/emblem (text-based) - above the bottom border
       doc.setFontSize(11);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(0, 0, 0);
       doc.text('~ LifeCraft ~', pageWidth / 2, pageHeight - 15, { align: 'center' });
 
-      // Convert to data URI (mobile compatible)
       const pdfDataUri = doc.output('datauristring');
 
-      // Store certificate data URI in database
       const success = await storeCertificateUrl(participant.id, pdfDataUri);
 
       if (success) {
-        // Send email notification
         const emailResult = await sendCompletionNotification(
           participant.email,
           participant.full_name,
@@ -307,12 +550,11 @@ export function AdminPortal({ profile }: AdminPortalProps) {
         );
 
         if (emailResult.success) {
-          alert(`✅ Certificate awarded and email notification sent to ${participant.full_name}!`);
+          alert(`Certificate awarded and email notification sent to ${participant.full_name}!`);
         } else {
-          alert(`⚠️ Certificate awarded but email notification failed: ${emailResult.error}\n\nThe certificate is still available in their dashboard.`);
+          alert(`Certificate awarded but email notification failed: ${emailResult.error}\n\nThe certificate is still available in their dashboard.`);
         }
         
-        // Refresh the data
         const certDrills = await getCertifiedDrills();
         setCertifiedDrills(certDrills);
       } else {
@@ -437,7 +679,6 @@ export function AdminPortal({ profile }: AdminPortalProps) {
       {activeTab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
           <div className="lg:col-span-2 space-y-4 sm:space-y-6">
-            {/* Recent Activity */}
             <Card className="p-4 sm:p-6">
               <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Recent Activity</h2>
               {recentActivity.length === 0 ? (
@@ -457,7 +698,6 @@ export function AdminPortal({ profile }: AdminPortalProps) {
               )}
             </Card>
 
-            {/* Performance Metrics */}
             <Card className="p-4 sm:p-6">
               <div className="flex items-center gap-2 mb-3 sm:mb-4">
                 <BarChart3 className="w-5 h-5 text-blue-600 flex-shrink-0" />
@@ -485,7 +725,6 @@ export function AdminPortal({ profile }: AdminPortalProps) {
             </Card>
           </div>
 
-          {/* Sidebar - Top Performers */}
           <div className="space-y-4 sm:space-y-6">
             <Card className="p-4 sm:p-6">
               <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Top Performers</h2>
@@ -607,7 +846,7 @@ export function AdminPortal({ profile }: AdminPortalProps) {
         </div>
       )}
 
-      {/* Drills Tab */}
+      {/* Drills Tab - WITH EXPORT PDF BUTTON */}
       {activeTab === 'drills' && (
         <div className="space-y-4 sm:space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
@@ -633,7 +872,7 @@ export function AdminPortal({ profile }: AdminPortalProps) {
                   
                   <h3 className="text-sm sm:text-base font-semibold mb-2 line-clamp-2">{drill.title}</h3>
                   
-                  <div className="space-y-2 text-xs sm:text-sm text-gray-600">
+                  <div className="space-y-2 text-xs sm:text-sm text-gray-600 mb-4">
                     {drill.date && (
                       <div className="flex items-center gap-2">
                         <Calendar className="w-4 h-4" />
@@ -654,6 +893,26 @@ export function AdminPortal({ profile }: AdminPortalProps) {
                       </div>
                     )}
                   </div>
+
+                  {/* EXPORT PDF BUTTON */}
+                  <Button
+                    onClick={() => generateDrillRegistrationReport(drill)}
+                    disabled={generatingReport}
+                    className="w-full bg-black hover:bg-gray-800 text-white text-xs sm:text-sm"
+                    size="sm"
+                  >
+                    {generatingReport ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <FileText className="w-4 h-4 mr-2" />
+                        Export Report PDF
+                      </>
+                    )}
+                  </Button>
                 </Card>
               ))
             )}
