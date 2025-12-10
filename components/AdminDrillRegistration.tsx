@@ -1,3 +1,4 @@
+// PART 1 OF 3
 import { useState, useEffect } from 'react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
@@ -124,16 +125,14 @@ export function AdminDrillRegistrations() {
       setConfirmComplete({ show: false, registration: null });
       await loadRegistrations();
       
-      alert('✅ Drill marked as completed! You can now award a certificate from the Certificates tab.');
+      alert('Drill marked as completed! You can now award a certificate from the Certificates tab.');
     } catch (error: any) {
       console.error('Error marking drill as complete:', error);
       
-      // Check if it's just an activity log permission error
       if (error.message && error.message.includes('activity_log')) {
-        // The drill was marked complete, just the activity log failed
         setConfirmComplete({ show: false, registration: null });
         await loadRegistrations();
-        alert('✅ Drill marked as completed! You can now award a certificate from the Certificates tab.');
+        alert('Drill marked as completed! You can now award a certificate from the Certificates tab.');
       } else {
         alert('Failed to mark drill as complete. Please try again.');
       }
@@ -212,156 +211,236 @@ export function AdminDrillRegistrations() {
       };
 
       // Header
-      doc.setFontSize(24);
-      doc.setTextColor(220, 38, 38);
+      doc.setFontSize(22);
+      doc.setTextColor(0, 0, 0);
       doc.setFont('helvetica', 'bold');
-      doc.text('LifeCraft', pageWidth / 2, yPos, { align: 'center' });
-      
-      yPos += 10;
-      doc.setFontSize(16);
-      doc.setTextColor(31, 41, 55);
-      doc.text('Physical Drill Registration List', pageWidth / 2, yPos, { align: 'center' });
-      
-      yPos += 6;
-      doc.setFontSize(9);
-      doc.setTextColor(107, 114, 128);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`Generated on ${new Date().toLocaleString()}`, pageWidth / 2, yPos, { align: 'center' });
+      doc.text('LIFECRAFT EMERGENCY RESPONSE TRAINING', pageWidth / 2, yPos, { align: 'center' });
       
       yPos += 8;
+      doc.setFontSize(14);
+      doc.text('Physical Drill Registration Report', pageWidth / 2, yPos, { align: 'center' });
       
-      doc.setDrawColor(220, 38, 38);
-      doc.setLineWidth(0.5);
+      yPos += 10;
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.8);
+      doc.line(leftMargin, yPos, pageWidth - rightMargin, yPos);
+      
+      yPos += 2;
+      doc.setLineWidth(0.3);
       doc.line(leftMargin, yPos, pageWidth - rightMargin, yPos);
       yPos += 10;
 
-      // Drill Info Box
-      doc.setFillColor(249, 250, 251);
-      doc.rect(leftMargin, yPos, contentWidth, 45, 'F');
+      // Document Info Section
+      doc.setFontSize(9);
+      doc.setTextColor(60, 60, 60);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Report Generated:', leftMargin, yPos);
+      doc.setFont('helvetica', 'bold');
+      doc.text(new Date().toLocaleString('en-US', { 
+        weekday: 'long', 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      }), leftMargin + 35, yPos);
       
-      doc.setFillColor(220, 38, 38);
-      doc.rect(leftMargin, yPos, 2, 45, 'F');
+      yPos += 15;
+
+      // Drill Info Box
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.5);
+      doc.rect(leftMargin, yPos, contentWidth, 50);
       
       yPos += 8;
       
       doc.setFontSize(14);
-      doc.setTextColor(31, 41, 55);
+      doc.setTextColor(0, 0, 0);
       doc.setFont('helvetica', 'bold');
-      doc.text(drillData.drillTitle, leftMargin + 5, yPos);
+      doc.text('DRILL INFORMATION', leftMargin + 5, yPos);
       
-      yPos += 8;
+      yPos += 10;
       doc.setFontSize(10);
       doc.setFont('helvetica', 'normal');
       
-      doc.setTextColor(107, 114, 128);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Drill Title:', leftMargin + 5, yPos);
+      doc.setFont('helvetica', 'normal');
+      doc.text(drillData.drillTitle, leftMargin + 30, yPos);
+      
+      yPos += 7;
+      
+      doc.setFont('helvetica', 'bold');
       doc.text('Date:', leftMargin + 5, yPos);
-      doc.setTextColor(31, 41, 55);
-      doc.text(dateString, leftMargin + 25, yPos);
+      doc.setFont('helvetica', 'normal');
+      doc.text(dateString, leftMargin + 30, yPos);
       
-      yPos += 6;
+      yPos += 7;
       
-      doc.setTextColor(107, 114, 128);
+      doc.setFont('helvetica', 'bold');
       doc.text('Time:', leftMargin + 5, yPos);
-      doc.setTextColor(31, 41, 55);
-      doc.text(drillData.drillTime || 'TBA', leftMargin + 25, yPos);
+      doc.setFont('helvetica', 'normal');
+      doc.text(drillData.drillTime || 'TBA', leftMargin + 30, yPos);
+      
+      yPos += 7;
+      
+      doc.setFont('helvetica', 'bold');
+      doc.text('Location:', leftMargin + 5, yPos);
+      doc.setFont('helvetica', 'normal');
+      const locationLines = doc.splitTextToSize(drillData.drillLocation || 'TBA', contentWidth - 35);
+      doc.text(locationLines, leftMargin + 30, yPos);
+      yPos += (locationLines.length * 5);
+      
+      yPos += 15;
+
+      // Registration Summary Section
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(0, 0, 0);
+      doc.text('REGISTRATION SUMMARY', leftMargin, yPos);
+      
+      yPos += 8;
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.3);
+      doc.line(leftMargin, yPos, pageWidth - rightMargin, yPos);
+      yPos += 8;
+      
+      // Get all registration categories for summary
+      const allRegistrations = drillData.registrations;
+      const pendingRegsCount = allRegistrations.filter(r => r.status === 'pending').length;
+      const approvedRegsCount = allRegistrations.filter(r => r.status === 'approved').length;
+      const completedRegsCount = allRegistrations.filter(r => r.status === 'completed').length;
+      const totalCount = allRegistrations.length;
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Total Registrations: ${totalCount}`, leftMargin, yPos);
       
       yPos += 6;
+      doc.text(`Pending Approval: ${pendingRegsCount}`, leftMargin, yPos);
       
-      doc.setTextColor(107, 114, 128);
-      doc.text('Location:', leftMargin + 5, yPos);
-      doc.setTextColor(31, 41, 55);
-      const locationLines = doc.splitTextToSize(drillData.drillLocation || 'TBA', contentWidth - 30);
-      doc.text(locationLines, leftMargin + 25, yPos);
-      yPos += (locationLines.length * 5);
+      yPos += 6;
+      doc.text(`Approved: ${approvedRegsCount}`, leftMargin, yPos);
+      
+      yPos += 6;
+      doc.text(`Completed: ${completedRegsCount}`, leftMargin, yPos);
       
       yPos += 10;
 
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(31, 41, 55);
-      doc.text('Approved Participants', leftMargin, yPos);
-      
-      doc.setFillColor(220, 38, 38);
-      const badgeText = `${approvedRegs.length} Registered`;
-      const badgeWidth = doc.getTextWidth(badgeText) + 8;
-      doc.roundedRect(leftMargin + 60, yPos - 4, badgeWidth, 6, 2, 2, 'F');
-      doc.setFontSize(9);
-      doc.setTextColor(255, 255, 255);
-      doc.text(badgeText, leftMargin + 64, yPos);
-      
-      yPos += 8;
+      // Helper function to format name from email
+      const formatNameFromEmail = (email: string) => {
+        if (!email) return 'N/A';
+        const username = email.split('@')[0];
+        const parts = username.replace(/[0-9]/g, '').split(/[._-]/);
+        return parts.map(part => 
+          part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+        ).join(' ');
+      };
 
-      if (approvedRegs.length === 0) {
-        doc.setFontSize(10);
-        doc.setTextColor(107, 114, 128);
-        doc.setFont('helvetica', 'normal');
-        doc.text('No approved registrations yet.', pageWidth / 2, yPos + 10, { align: 'center' });
-      } else {
-        doc.setFillColor(243, 244, 246);
-        doc.rect(leftMargin, yPos, contentWidth, 8, 'F');
+      // Helper function to render a table
+      const renderTable = (registrations: any[], statusTitle: string) => {
+        if (registrations.length === 0) return;
+
+        checkAddPage(20);
+        
+        // Section Header
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(0, 0, 0);
+        doc.text(statusTitle, leftMargin, yPos);
+        
+        yPos += 8;
+        
+        // Table Header
+        doc.setDrawColor(0, 0, 0);
+        doc.setFillColor(240, 240, 240);
+        doc.rect(leftMargin, yPos, contentWidth, 8, 'FD');
         
         doc.setFontSize(9);
         doc.setFont('helvetica', 'bold');
-        doc.setTextColor(55, 65, 81);
+        doc.setTextColor(0, 0, 0);
         
-        const col1 = leftMargin + 2;
-        const col2 = leftMargin + 12;
-        const col3 = leftMargin + 55;
-        const col4 = leftMargin + 125;
+        const col1 = leftMargin + 3;
+        const col2 = leftMargin + 15;
+        const col3 = leftMargin + 65;
         
-        doc.text('#', col1, yPos + 5);
-        doc.text('Name', col2, yPos + 5);
-        doc.text('Email', col3, yPos + 5);
-        doc.text('Status', col4, yPos + 5);
+        doc.text('No.', col1, yPos + 5);
+        doc.text('Full Name', col2, yPos + 5);
+        doc.text('Email Address', col3, yPos + 5);
         
         yPos += 8;
         
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(9);
         
-        approvedRegs.forEach((reg, index) => {
+        registrations.forEach((reg, index) => {
           checkAddPage(10);
           
           if (index % 2 === 0) {
-            doc.setFillColor(249, 250, 251);
+            doc.setFillColor(250, 250, 250);
             doc.rect(leftMargin, yPos, contentWidth, 8, 'F');
           }
           
-          doc.setDrawColor(229, 231, 235);
+          doc.setDrawColor(200, 200, 200);
           doc.setLineWidth(0.1);
           doc.line(leftMargin, yPos + 8, pageWidth - rightMargin, yPos + 8);
           
-          doc.setTextColor(31, 41, 55);
+          doc.setTextColor(0, 0, 0);
           
           doc.text(`${index + 1}`, col1, yPos + 5);
           
-          const name = reg.profiles?.full_name || 'N/A';
+          const fullName = reg.profiles?.full_name || formatNameFromEmail(reg.profiles?.email || '');
           doc.setFont('helvetica', 'bold');
-          const nameLines = doc.splitTextToSize(name, 40);
+          const nameLines = doc.splitTextToSize(fullName, 48);
           doc.text(nameLines[0], col2, yPos + 5);
           doc.setFont('helvetica', 'normal');
           
           const email = reg.profiles?.email || 'N/A';
-          const emailLines = doc.splitTextToSize(email, 65);
+          const emailLines = doc.splitTextToSize(email, 115);
           doc.text(emailLines[0], col3, yPos + 5);
-          
-          const status = reg.status === 'completed' ? '✓ Completed' : 'Approved';
-          doc.text(status, col4, yPos + 5);
           
           yPos += 8;
         });
+        
+        yPos += 10;
+      };
+
+      // Get all registration categories
+      const allRegs = drillData.registrations;
+      const pendingRegsForPDF = allRegs.filter(r => r.status === 'pending');
+      const approvedRegsForPDF = allRegs.filter(r => r.status === 'approved');
+      const completedRegsForPDF = allRegs.filter(r => r.status === 'completed');
+
+      if (allRegs.length === 0) {
+        doc.setFontSize(10);
+        doc.setTextColor(80, 80, 80);
+        doc.setFont('helvetica', 'italic');
+        doc.text('No registrations for this drill.', pageWidth / 2, yPos + 10, { align: 'center' });
+      } else {
+        // Render tables for each status
+        if (completedRegsForPDF.length > 0) {
+          renderTable(completedRegsForPDF, `COMPLETED PARTICIPANTS (${completedRegsForPDF.length})`);
+        }
+        
+        if (approvedRegsForPDF.length > 0) {
+          renderTable(approvedRegsForPDF, `APPROVED PARTICIPANTS (${approvedRegsForPDF.length})`);
+        }
+        
+        if (pendingRegsForPDF.length > 0) {
+          renderTable(pendingRegsForPDF, `PENDING APPROVAL (${pendingRegsForPDF.length})`);
+        }
       }
       
       yPos = pageHeight - 20;
-      doc.setDrawColor(229, 231, 235);
+      doc.setDrawColor(0, 0, 0);
       doc.setLineWidth(0.3);
       doc.line(leftMargin, yPos, pageWidth - rightMargin, yPos);
       
       yPos += 5;
       doc.setFontSize(8);
-      doc.setTextColor(107, 114, 128);
+      doc.setTextColor(80, 80, 80);
       doc.setFont('helvetica', 'bold');
-      doc.text('LifeCraft - Emergency Response Training', pageWidth / 2, yPos, { align: 'center' });
+      doc.text('LIFECRAFT - Emergency Response Training', pageWidth / 2, yPos, { align: 'center' });
       
       yPos += 4;
       doc.setFont('helvetica', 'normal');
@@ -413,7 +492,7 @@ export function AdminDrillRegistrations() {
     );
   }
 
-  // Filter registrations
+  // PART 2: Data Processing and Filtering
   const filteredRegistrations = registrations.filter(reg => {
     if (activeFilter === 'all') return true;
     return reg.status === activeFilter;
@@ -456,10 +535,10 @@ export function AdminDrillRegistrations() {
     { id: 'declined', label: 'Declined', count: declinedCount },
   ];
 
+  // PART 3: Render
   return (
     <div className="w-full min-h-screen px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
         <div className="mb-6 sm:mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold mb-2">Manage Physical Drill Registrations</h1>
@@ -476,7 +555,6 @@ export function AdminDrillRegistrations() {
           </Button>
         </div>
 
-        {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
           <Card className="p-4">
             <div className="flex flex-col gap-2">
@@ -527,7 +605,6 @@ export function AdminDrillRegistrations() {
           </Card>
         </div>
 
-        {/* Filter Tabs */}
         <div className="mb-6">
           <div className="flex flex-wrap gap-2">
             {filterTabs.map(tab => (
@@ -557,7 +634,6 @@ export function AdminDrillRegistrations() {
           </div>
         </div>
 
-        {/* Confirmation Modal */}
         {confirmComplete.show && confirmComplete.registration && (
           <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50 p-4">
             <Card className="max-w-md w-full p-6">
@@ -576,7 +652,7 @@ export function AdminDrillRegistrations() {
               </div>
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
                 <p className="text-sm text-blue-800">
-                  ℹ️ After marking as complete, you can award a certificate from the <strong>Certificates tab</strong>.
+                  After marking as complete, you can award a certificate from the Certificates tab.
                 </p>
               </div>
               <div className="flex gap-3">
@@ -607,7 +683,6 @@ export function AdminDrillRegistrations() {
           </div>
         )}
 
-        {/* Registrations by Drill */}
         <div className="mb-6 sm:mb-8">
           <h2 className="text-xl sm:text-2xl font-bold mb-4">
             {activeFilter === 'all' ? 'All Drills' : `${filterTabs.find(t => t.id === activeFilter)?.label} Registrations`}
@@ -648,7 +723,7 @@ export function AdminDrillRegistrations() {
                           
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs sm:text-sm mb-3">
                             <div className="flex items-center gap-2">
-                              <span className="text-gray-600">📅</span>
+                              <span className="text-gray-600">Date:</span>
                               <span className="truncate">
                                 {drill.drillDate ? new Date(drill.drillDate).toLocaleDateString('en-US', {
                                   year: 'numeric',
@@ -658,11 +733,11 @@ export function AdminDrillRegistrations() {
                               </span>
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className="text-gray-600">🕐</span>
+                              <span className="text-gray-600">Time:</span>
                               <span className="truncate">{drill.drillTime || 'TBA'}</span>
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className="text-gray-600">📍</span>
+                              <span className="text-gray-600">Location:</span>
                               <span className="truncate">{drill.drillLocation || 'TBA'}</span>
                             </div>
                           </div>
@@ -717,7 +792,6 @@ export function AdminDrillRegistrations() {
 
                     {isExpanded && (
                       <div className="p-4 sm:p-6 border-t">
-                        {/* Pending Registrations */}
                         {pendingRegs.length > 0 && (
                           <div className="mb-6">
                             <h4 className="font-semibold mb-3 text-amber-700 text-sm sm:text-base flex items-center gap-2">
@@ -773,7 +847,7 @@ export function AdminDrillRegistrations() {
                           </div>
                         )}
 
-                        {/* Approved Registrations */}
+                        {/* PART 3: Approved, Completed, and Declined Sections */}
                         {approvedRegs.length > 0 && (
                           <div className="mb-6">
                             <h4 className="font-semibold mb-3 text-green-700 text-sm sm:text-base flex items-center gap-2">
@@ -787,7 +861,7 @@ export function AdminDrillRegistrations() {
                                     <div className="flex items-center gap-2 mb-1">
                                       <p className="font-medium text-sm sm:text-base truncate">{reg.profiles?.full_name || 'Unknown'}</p>
                                       <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">
-                                        ✓ Approved
+                                        Approved
                                       </Badge>
                                     </div>
                                     <p className="text-xs sm:text-sm text-gray-600 break-all">{reg.profiles?.email || 'No email'}</p>
@@ -817,7 +891,6 @@ export function AdminDrillRegistrations() {
                           </div>
                         )}
 
-                        {/* Completed Registrations */}
                         {completedRegs.length > 0 && (
                           <div className="mb-6">
                             <h4 className="font-semibold mb-3 text-blue-700 text-sm sm:text-base flex items-center gap-2">
@@ -831,7 +904,7 @@ export function AdminDrillRegistrations() {
                                     <div className="flex items-center gap-2 mb-1">
                                       <p className="font-medium text-sm sm:text-base truncate">{reg.profiles?.full_name || 'Unknown'}</p>
                                       <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-xs">
-                                        ✓ Completed
+                                        Completed
                                       </Badge>
                                     </div>
                                     <p className="text-xs sm:text-sm text-gray-600 break-all">{reg.profiles?.email || 'No email'}</p>
@@ -847,13 +920,12 @@ export function AdminDrillRegistrations() {
                             </div>
                             <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                               <p className="text-xs sm:text-sm text-blue-800">
-                                💡 <strong>Next Step:</strong> Go to the <strong>Certificates</strong> tab to award certificates to these participants.
+                                Next Step: Go to the Certificates tab to award certificates to these participants.
                               </p>
                             </div>
                           </div>
                         )}
 
-                        {/* Declined Registrations */}
                         {declinedRegs.length > 0 && (
                           <div>
                             <h4 className="font-semibold mb-3 text-red-700 text-sm sm:text-base flex items-center gap-2">
@@ -868,7 +940,7 @@ export function AdminDrillRegistrations() {
                                     <p className="text-xs sm:text-sm text-gray-500 break-all">{reg.profiles?.email || 'No email'}</p>
                                   </div>
                                   <Badge className="bg-red-100 text-red-700 border-red-200 text-xs self-start sm:self-center flex-shrink-0">
-                                    ✗ Declined
+                                    Declined
                                   </Badge>
                                 </div>
                               ))}
@@ -888,7 +960,6 @@ export function AdminDrillRegistrations() {
           )}
         </div>
 
-        {/* Help Section */}
         <Card className="p-4 sm:p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
           <h3 className="font-semibold text-lg mb-3 flex items-center gap-2">
             <AlertCircle className="w-5 h-5 text-blue-600" />
@@ -897,11 +968,11 @@ export function AdminDrillRegistrations() {
           <div className="space-y-2 text-sm text-gray-700">
             <div className="flex items-start gap-3">
               <span className="font-bold text-amber-600 flex-shrink-0">1.</span>
-              <p><strong>Pending:</strong> User submits registration → Wait for admin approval</p>
+              <p><strong>Pending:</strong> User submits registration, wait for admin approval</p>
             </div>
             <div className="flex items-start gap-3">
               <span className="font-bold text-green-600 flex-shrink-0">2.</span>
-              <p><strong>Approved:</strong> Admin approves → User can attend the drill</p>
+              <p><strong>Approved:</strong> Admin approves, user can attend the drill</p>
             </div>
             <div className="flex items-start gap-3">
               <span className="font-bold text-blue-600 flex-shrink-0">3.</span>
